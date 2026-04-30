@@ -18,6 +18,7 @@ const hasFirebaseConfig = ["apiKey", "authDomain", "projectId", "appId"].every(
 
 let firebaseAuth = null;
 let googleProvider = null;
+let firebaseAuthModule = null;
 
 document.body.classList.add("auth-locked");
 
@@ -38,7 +39,7 @@ if (storedSession === "authenticated") {
 }
 
 if (hasFirebaseConfig) {
-  googleHint.textContent = "Connexion Google prête via Firebase.";
+  googleHint.textContent = "Connexion Google prête après chargement de Firebase.";
 }
 
 authTabs.forEach((tab) => {
@@ -79,6 +80,31 @@ const loginWithLocalStorage = (email, password) => {
   unlockSite();
 };
 
+const ensureFirebase = async () => {
+  if (!hasFirebaseConfig) {
+    return false;
+  }
+
+  if (firebaseAuth && googleProvider && firebaseAuthModule) {
+    return true;
+  }
+
+  try {
+    const firebaseAppModule = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-app.js");
+    firebaseAuthModule = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js");
+
+    const firebaseApp = firebaseAppModule.initializeApp(rawFirebaseConfig);
+    firebaseAuth = firebaseAuthModule.getAuth(firebaseApp);
+    googleProvider = new firebaseAuthModule.GoogleAuthProvider();
+    googleHint.textContent = "Connexion Google disponible.";
+    return true;
+  } catch (error) {
+    googleHint.textContent = "Firebase non chargé. Vérifie la configuration.";
+    setMessage("Le chargement Firebase a échoué: " + (error.message || "erreur inconnue"), true);
+    return false;
+  }
+};
+
 registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(registerForm);
@@ -90,14 +116,15 @@ registerForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (!firebaseAuth) {
+  const firebaseReady = await ensureFirebase();
+
+  if (!firebaseReady) {
     registerWithLocalStorage(email, password);
     return;
   }
 
   try {
-    const { createUserWithEmailAndPassword } = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js");
-    await createUserWithEmailAndPassword(firebaseAuth, email, password);
+    await firebaseAuthModule.createUserWithEmailAndPassword(firebaseAuth, email, password);
     localStorage.setItem(STORAGE_SESSION_KEY, "authenticated");
     setMessage("Compte créé. Accès autorisé.");
     unlockSite();
@@ -112,14 +139,15 @@ loginForm.addEventListener("submit", async (event) => {
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const password = String(formData.get("password") || "");
 
-  if (!firebaseAuth) {
+  const firebaseReady = await ensureFirebase();
+
+  if (!firebaseReady) {
     loginWithLocalStorage(email, password);
     return;
   }
 
   try {
-    const { signInWithEmailAndPassword } = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js");
-    await signInWithEmailAndPassword(firebaseAuth, email, password);
+    await firebaseAuthModule.signInWithEmailAndPassword(firebaseAuth, email, password);
     localStorage.setItem(STORAGE_SESSION_KEY, "authenticated");
     setMessage("Connexion réussie.");
     unlockSite();
@@ -129,14 +157,15 @@ loginForm.addEventListener("submit", async (event) => {
 });
 
 googleLoginButton.addEventListener("click", async () => {
-  if (!firebaseAuth || !googleProvider) {
+  const firebaseReady = await ensureFirebase();
+
+  if (!firebaseReady) {
     setMessage("Configure d'abord Firebase dans auth-config.js pour activer Google.", true);
     return;
   }
 
   try {
-    const { signInWithPopup } = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js");
-    await signInWithPopup(firebaseAuth, googleProvider);
+    await firebaseAuthModule.signInWithPopup(firebaseAuth, googleProvider);
     localStorage.setItem(STORAGE_SESSION_KEY, "authenticated");
     setMessage("Connexion Google réussie.");
     unlockSite();
@@ -144,23 +173,6 @@ googleLoginButton.addEventListener("click", async () => {
     setMessage("Connexion Google impossible: " + (error.message || "erreur inconnue"), true);
   }
 });
-
-if (hasFirebaseConfig) {
-  try {
-    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-app.js");
-    const {
-      getAuth,
-      GoogleAuthProvider,
-    } = await import("https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js");
-
-    const firebaseApp = initializeApp(rawFirebaseConfig);
-    firebaseAuth = getAuth(firebaseApp);
-    googleProvider = new GoogleAuthProvider();
-  } catch (error) {
-    googleHint.textContent = "Firebase non chargé. Vérifie la configuration.";
-    setMessage("Le chargement Firebase a échoué: " + (error.message || "erreur inconnue"), true);
-  }
-}
 
 if (!("IntersectionObserver" in window)) {
   revealItems.forEach((item) => item.classList.add("is-visible"));
